@@ -300,6 +300,8 @@ def main():
 
     is_model_worse = evaluate_model(xgb, val_csv_path, bucket, X_val, y_val)
     model_s3_path = store_model(xgb, bucket)
+    if is_model_worse:
+        raise RuntimeError("Model performing worse, exiting pipeline!")
 
     print(f"✅ Model training complete. Stored at: {model_s3_path}")
 
