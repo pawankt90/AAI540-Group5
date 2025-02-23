@@ -1,0 +1,21 @@
+version: 0.2
+
+cache:
+  paths:
+    - '/root/.cache/pip/**'  # Cache pip packages
+    - '/root/.npm/**'         # Cache npm dependencies
+
+phases:
+  install:
+    commands:
+      - pip install --upgrade pip
+      - pip install -r requirements.txt
+
+  build:
+    commands:
+      - echo "Running baseline_model.py..."
+      - python baseline_model.py
+
+artifacts:
+  files:
+    - "**/*"

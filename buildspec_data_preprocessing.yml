@@ -1,0 +1,21 @@
+version: 0.2
+
+cache:
+  paths:
+    - '/root/.cache/pip/**'  # Cache pip packages
+    - '/root/.npm/**'         # Cache npm dependencies
+
+phases:
+  install:
+    commands:
+      - pip install --upgrade pip
+      - pip install -r requirements.txt
+
+  build:
+    commands:
+      - echo "Running data_preprocessing.py..."
+      - python data_preprocessing.py
+
+artifacts:
+  files:
+    - "**/*"
