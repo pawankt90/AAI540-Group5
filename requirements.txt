@@ -1,0 +1,25 @@
+# AWS & SageMaker
+awscli
+boto3
+sagemaker
+smdebug
+sagemaker-experiments
+awswrangler
+
+# Data & Analytics
+pandas
+numpy
+PyAthena
+
+# Machine Learning & Preprocessing
+scikit-learn
+joblib
+xgboost
+
+# Visualization
+matplotlib
+seaborn
+
+# Configuration & Utilities
+wrapt
+pyyaml
