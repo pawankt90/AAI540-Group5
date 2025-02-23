@@ -1,2 +1,4 @@
 .ipynb_checkpoints/
 Deprecated/.ipynb_checkpoints/
+*.xml
+.idea
