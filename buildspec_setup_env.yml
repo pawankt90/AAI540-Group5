@@ -1,5 +1,12 @@
 version: 0.2
 
+cache:
+  type: LOCAL
+  modes:
+    - LOCAL_SOURCE_CACHE     # Cache Git source code
+    - LOCAL_DOCKER_LAYER_CACHE  # Cache Docker layers (useful for container builds)
+    - LOCAL_CUSTOM_CACHE     # Cache custom paths (pip/npm/maven)
+
 phases:
   install:
     commands:
