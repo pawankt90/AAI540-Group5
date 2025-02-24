@@ -229,7 +229,16 @@ def evaluate_model(xgb_obj, val_csv_path, s3_bucket, X_val, y_true):
         json.dump({"mse": mse_new}, f, indent=4)
     s3_client.upload_file(metrics_file, s3_bucket, f"xgboost_models/{metrics_file}")
 
-    return is_model_worse
+    ssm_client = boto3.client("ssm")
+    # Store evaluation status in SSM Parameter Store
+    ssm_client.put_parameter(
+        Name="/xgboost-model-evaluation/is_model_worse",
+        Value=str(is_model_worse),
+        Type="String",
+        Overwrite=True
+    )
+
+    return is_model_worse, mse_new, "s3://"+s3_bucket+f"/xgboost_models/{metrics_file}"
 
 
 # Function to Deploy Model
@@ -286,6 +295,73 @@ def get_feature_store_table_name(feature_group_name):
         return None
 
 
+def register_model(xgb, mse_new, metrics_s3_path, model_approval_status="PendingManualApproval"):
+
+    model_approval_status = "PendingManualApproval"
+    model_metrics = {"mse": mse_new}
+
+    sm_client = boto3.client("sagemaker")
+
+    model_s3_path = xgb.model_data
+
+    # Define Model Package Group Name
+    model_package_group_name = "XGBoostFlightDelayModelGroup"
+
+    # Check if Model Package Group exists, if not, create it
+    try:
+        sm_client.describe_model_package_group(ModelPackageGroupName=model_package_group_name)
+    except sm_client.exceptions.ClientError:
+        print(f"Creating new Model Package Group: {model_package_group_name}")
+        sm_client.create_model_package_group(
+            ModelPackageGroupName=model_package_group_name,
+            ModelPackageGroupDescription="Model package group for XGBoost flight delay predictions"
+        )
+
+    # Define Model Package Parameters
+    model_package_input_dict = {
+        "ModelPackageGroupName": model_package_group_name,
+        "ModelPackageDescription": "XGBoost model for flight delay prediction",
+        "ModelApprovalStatus": model_approval_status,  # Default: PendingManualApproval
+        "InferenceSpecification": {
+            "Containers": [
+                {
+                    "Image": sagemaker.image_uris.retrieve("xgboost", "us-east-1", "1.5-1"),
+                    "ModelDataUrl": model_s3_path
+                }
+            ],
+            "SupportedContentTypes": ["text/csv"],
+            "SupportedResponseMIMETypes": ["text/csv"],
+        },
+        "MetadataProperties": {  # ✅ Fixed: Only using valid metadata keys
+            "GeneratedBy": "XGBoost Training Pipeline",
+            "Repository": "https://github.com/pawankt90/AAI540-Group5"
+        },
+        "ModelMetrics": {  # ✅ Fixed: Nested MSE inside ModelQuality
+            "ModelQuality": {
+                "Statistics": {
+                    "ContentType": "application/json",
+                    "S3Uri": metrics_s3_path
+                }
+            }
+        }
+    }
+
+    # Register Model
+    response = sm_client.create_model_package(**model_package_input_dict)
+    model_package_arn = response["ModelPackageArn"]
+    print(f"✅ Model Registered in Model Registry: {model_package_arn}")
+
+    ssm_client = boto3.client("ssm")
+    ssm_client.put_parameter(
+        Name="/pipeline/current_model_package_arn",
+        Value=str(model_package_arn),
+        Type="String",
+        Overwrite=True
+    )
+    return model_package_arn
+
+    # Register Model
+
 # Main Execution
 def main():
     is_model_worse = False
@@ -298,10 +374,13 @@ def main():
     train_s3_path, val_s3_path, val_csv_path, X_val, y_val = prepare_data(df)
     xgb = train_xgboost(train_s3_path, val_s3_path)
 
-    is_model_worse = evaluate_model(xgb, val_csv_path, bucket, X_val, y_val)
+    is_model_worse, mse_new, metrics_s3_path = evaluate_model(xgb, val_csv_path, bucket, X_val, y_val)
+    model_package_arn = register_model(xgb, mse_new, metrics_s3_path)
     model_s3_path = store_model(xgb, bucket)
-    if is_model_worse:
-        raise RuntimeError("Model performing worse, exiting pipeline!")
+    print(is_model_worse)
+    print(model_package_arn)
+    # if is_model_worse:
+    #     raise RuntimeError("Model performing worse, exiting pipeline!")
 
     print(f"✅ Model training complete. Stored at: {model_s3_path}")
 

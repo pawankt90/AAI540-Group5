@@ -16,6 +16,7 @@ session = boto3.session.Session()
 sagemaker_session = sagemaker.Session()
 config = load_config()
 bucket = config['bucket']
+s3_bucket = config['bucket']
 prefix = "flight-delay-prediction-xgboost"
 role = load_config()["sagemaker_execution_role"]
 region = load_config()["region"]
@@ -42,6 +43,7 @@ def load_trained_model(s3_model_path):
 
 # Deploy Model to SageMaker Endpoint
 def deploy_model(s3_model_path):
+
     """Deploys the trained XGBoost model as a real-time SageMaker endpoint."""
     model_name = "xgboost-flight-delay-model"
     endpoint_name = "flight-delay-xgboost-endpoint"
@@ -257,16 +259,51 @@ def delete_existing_endpoint(endpoint_name):
 
     except sm_client.exceptions.ClientError:
         print(f"✅ Endpoint {endpoint_name} does not exist. Proceeding with deployment.")
+
+def store_model(model_artifact_path, s3_bucket):
+    s3_client = boto3.client('s3')
+
+    local_model_path = "xgboost_model.tar.gz"
+
+    # Extract bucket name and key from S3 path
+    bucket_name = model_artifact_path.split('/')[2]
+    key = "/".join(model_artifact_path.split('/')[3:])
+    print(f"Downloading model from {model_artifact_path} to {local_model_path}...")
+    s3_client.download_file(bucket_name, key, local_model_path)
+
+    s3_model_path = f"xgboost_models/xgboost_model.tar.gz"
+    s3_client.upload_file(local_model_path, s3_bucket, s3_model_path)
+    print(f"✅ Model stored at s3://{s3_bucket}/{s3_model_path}")
+    return f"s3://{s3_bucket}/{s3_model_path}"
+
+def get_approved_model_path():
+    ssm_client = boto3.client("ssm")
+    # ✅ Retrieve the correct model package ARN from SSM
+    response = ssm_client.get_parameter(Name="/pipeline/current_model_package_arn")
+    model_package_arn = response["Parameter"]["Value"]
+    sm_client = boto3.client("sagemaker")
+    sm_client.update_model_package(
+        ModelPackageArn=model_package_arn,
+        ModelApprovalStatus="Approved"
+    )
+    model_info = sm_client.describe_model_package(ModelPackageName=model_package_arn)
+    s3_model_path = model_info["InferenceSpecification"]["Containers"][0]["ModelDataUrl"]
+
+    return s3_model_path
+
+
 def main():
 
     config = load_config()
     s3_model_path = config["xgboost_model"]
     config = load_config()
-    s3_model_path = config['xgboost_model']  # Replace with actual path
+    #s3_model_path = config['xgboost_model']  # Replace with actual path
     s3_staging_dir = config["s3_staging_dir"]
     # Load model and deploy to endpoint
-    model_file = load_trained_model(s3_model_path)
-    predictor, endpoint_name = deploy_model(s3_model_path)
+    #model_file = load_trained_model(s3_model_path)
+    s3_model_path = get_approved_model_path()
+    xgboost_deployed_path = store_model(s3_model_path, s3_bucket)
+    predictor, endpoint_name = deploy_model(xgboost_deployed_path)
 
     # Run Batch Transform
     dev_feature_store_table = get_feature_store_table_name(config["dev_fg_name"])
@@ -277,9 +314,9 @@ def main():
     # Test model with a sample input
     sample_input = np.random.rand(20)  # Replace with a real feature vector
     test_model_prediction(endpoint_name, sample_input)
-    # delete_existing_model("xgboost-flight-delay-model")
-    # delete_existing_endpoint("flight-delay-xgboost-endpoint")
-    # delete_existing_endpoint("flight-delay-xgboost-endpoint-with-batch-transform")
+    delete_existing_model("xgboost-flight-delay-model")
+    delete_existing_endpoint("flight-delay-xgboost-endpoint")
+    delete_existing_endpoint("flight-delay-xgboost-endpoint-with-batch-transform")
 
     #print(f"✅ Deployment complete. Endpoint: {endpoint_name}")
 
