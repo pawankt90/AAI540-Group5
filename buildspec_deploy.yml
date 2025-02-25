@@ -4,6 +4,7 @@ cache:
   paths:
     - '/root/.cache/pip/**'  # Cache pip packages
     - '/root/.npm/**'         # Cache npm dependencies
+    - '/root/.pyenv/**'
 
 phases:
   install:
